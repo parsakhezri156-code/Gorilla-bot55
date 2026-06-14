@@ -10,7 +10,7 @@ const brain = require("./brain");
 
 const TELEGRAM_TOKEN = "8940656901:AAHMFWZELR_Ve3kkE7YVX_q4WQjozRsP7uM";
 const GROQ_KEY       = "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";
-const GROQ_MODEL     = "llama-3.1-8b-instant";
+const GROQ_MODEL     = "llama-3.3-70b-versatile";
 
 // ══════════════════════════════════════════
 //  تشخیص پیام شوخی/فحش - کاملاً محلی
