@@ -7,6 +7,7 @@
 const TelegramBot = require("node-telegram-bot-api");
 const axios = require("axios");
 const brain = require("./brain");
+const memory = require("./memory");
 
 const TELEGRAM_TOKEN = "8940656901:AAHMFWZELR_Ve3kkE7YVX_q4WQjozRsP7uM";
 const GROQ_KEY       = "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";
@@ -16,15 +17,24 @@ const GROQ_MODEL     = "llama-3.3-70b-versatile";
 //  تشخیص پیام شوخی/فحش - کاملاً محلی
 // ══════════════════════════════════════════
 const SPICY_TRIGGERS = [
-  "کص","کیر","کون","ننت","مادرت","باباتو","پدرت","ناموس",
-  "گاییدم","گاییدت","بکن","جنده","فاحشه","خفه","احمق",
-  "کثیف","مزخرف","گه","گند","عوضی","بیشعور","حرومزاده",
+  "کص","کیر","کون","ننت","گاییدم","گاییدت","جنده",
+  "حرومزاده","ناموست","ریدم","کصکش","بکن","گاییدی",
 ];
+
+// کلماتی که نباید trigger بشن (شوخی معمولی)
+const SAFE_WORDS = ["الاغ","احمق","خر","مزخرف","گند","بد"];
 
 function isSpicy(text) {
   const t = text.toLowerCase();
-  return SPICY_TRIGGERS.some(w => t.includes(w));
+  const hasSpicy = SPICY_TRIGGERS.some(w => t.includes(w));
+  if (!hasSpicy) return false;
+  // اگه فقط safe word داره، رد کن
+  const onlySafe = SAFE_WORDS.some(w => t.includes(w)) && 
+                   !SPICY_TRIGGERS.slice(0,5).some(w => t.includes(w));
+  return !onlySafe;
 }
+
+
 
 // ══════════════════════════════════════════
 //  موتور جواب شوخی - کاملاً محلی، بدون AI
@@ -280,7 +290,11 @@ async function askGroq(session, userText){
 const bot=new TelegramBot(TELEGRAM_TOKEN,{polling:true});
 const sessions={};
 function getSession(id){
-  if(!sessions[id]) sessions[id]={learner:new Learner(),history:[],count:0};
+  if(!sessions[id]){
+    // بازیابی از حافظه دائمی
+    const { learner, history } = memory.loadLearnerFromMemory(id, Learner);
+    sessions[id] = { learner, history, count: learner.count };
+  }
   return sessions[id];
 }
 
@@ -290,7 +304,18 @@ bot.on("message",async(msg)=>{
   if(!text) return;
 
   if(text==="/start") return bot.sendMessage(id,"سلام! 🫏\nمن خرHوش مصنوعی‌ام!\n\n/joke — شوخی رندوم\n/status — وضعیتم\n/reset — پاک کردن حافظه");
-  if(text==="/reset"){delete sessions[id];return bot.sendMessage(id,"مغزم پاک شد 🧠");}
+  if(text==="/reset"){
+    delete sessions[id];
+    memory.saveUser(id, { userId:id, count:0, wordFreq:{}, topics:{}, history:[], usedJokes:[] });
+    return bot.sendMessage(id,"مغزم پاک شد 🧠");
+  }
+
+  if(text==="/stats"){
+    const st = memory.getStats();
+    return bot.sendMessage(id,
+      `📊 آمار کلی ربات:\nکاربران: ${st.totalUsers}\nکل پیام‌ها: ${st.totalMessages}`
+    );
+  }
   if(text==="/joke"){
     const s=getSession(id);
     return bot.sendMessage(id,LOCAL_ENGINE.respondMulti(s.learner.topKeywords(3)));
@@ -321,6 +346,8 @@ bot.on("message",async(msg)=>{
 
     s.history.push({role:"user",content:text},{role:"assistant",content:reply});
     if(s.history.length>16) s.history=s.history.slice(-16);
+    // ذخیره در حافظه دائمی
+    memory.syncLearnerToMemory(id, s.learner, s.history);
     await bot.sendMessage(id,reply);
     if(s.count%5===0) await bot.sendMessage(id,`⚡ سطح جدید: ${getLevel(s.count).label}`);
 
